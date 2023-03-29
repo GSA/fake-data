@@ -1,0 +1,465 @@
+---
+title: "Fabricated Data Preparaion"
+author: "Ben Jaques-Leslie"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: united
+    highlight: tango
+    code_folding: hide
+params:
+  project: 'MFIP workers'
+  data_file: "MFIP-workers-brief-prepared-2022-12-23.RData" 
+  number_ids: 5000
+---
+
+<!-- (using parameters in Rmarkdown; don't forget the r) -->
+<!-- (This statement above all tabs) -->
+This is my report data preparation report for `r paste(params$project)`.
+
+<!-- (making tabs) -->
+<!-- # header 1, all tabs need to be ## header 2 to nest -->
+
+# {.tabset .tabset-pills}
+
+## Some Info {.tabset .tabset-pills}
+
+Click buttons below to find details about this data extraction.
+
+### Set up
+
+```{r setup, echo = FALSE,message = FALSE,warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = TRUE,
+                      message = TRUE)
+tictoc::tic()
+library(tidyverse)
+library(lubridate)
+library(eaesdrrr)
+library(ggplot2)
+library(MNColorrrs)
+library(ggthemes)
+library(ggrepel)
+library(ggalluvial)
+library(english)
+library(DBI)
+library(tigris)
+library(sf)
+library(DBI)
+library(gtsummary)
+library(janitor)
+library(officer)
+library(officedown)
+library(flextable)
+library(skimr)
+library(rstatix)
+library(arsenal)
+library(gdata)
+```
+
+```{r load mfip workers data}
+load(here::here("data",params$data_file))
+```
+
+## Creating fabriated data {.tabset .tabset-pills}
+
+### Fabricating functions
+
+Written by Joe Ritter.
+
+This function takes a categorical vector and generates a random distribution with the same probabilities.
+
+```{r}
+fakeCat <- function(v, n) {
+    # v is integer, string, or factor.
+    # n is the desired length of the fake vector.
+    w <- as.character(v)
+    dist <- prop.table(table(w, useNA = 'always'))
+    vals <- names(dist)
+    fake.v <- sample(vals, n, prob=dist, replace=TRUE)
+    if (is.factor(v)) fake.v <- factor(fake.v)
+    if (is.integer(v)) fake.v <- as.integer(fake.v)
+    return(fake.v)
+}
+```
+
+This function creates a vector of fake dates.
+
+```{r}
+fakeDate <- function(v, n)
+{
+  lubridate::ymd(fakeCat(v,n))
+}
+```
+
+
+This function takes a continuous vector and generates a distribution with the same distribution.
+
+```{r}
+fakeCont <- function(v, n) {
+  # Remove nulls from v
+     v <- na.omit(v)
+ 
+    # v is a variable for which a kernel density estimate makes sense.
+    # n is the desired length of the fake vector.
+    dist <- density(v)
+    # The simulation follows one of the examples for density().
+    # The default kernel is gaussian, which is why rnorm is used.  
+    # Bandwidth is the SD of the # kernel.
+    fake.v <- rnorm(n, mean=sample(v, n, replace=TRUE), sd=dist$bw)
+    return(fake.v)                    
+}
+```
+
+```{r}
+fakeCont(v = cohort$Wages,n = 10)
+```
+
+
+```{r}
+unique(cohort$MF) %>% length()
+
+c(1:10) %>% length()
+
+class(cohort$race)
+
+all.equal(cohort$Wages, as.integer(cohort$Wages))
+
+ifelse(all.equal(round(cohort$case_size_all),cohort$case_size_all) == TRUE,TRUE,FALSE)
+```
+
+
+```{r}
+helper_unique <- function(in_original_data,in_variable, n)
+{
+  v <- 
+    in_original_data %>% 
+    select(PersonID,{{in_variable}}) %>% 
+    distinct() %>% 
+    pull({{in_variable}})
+  
+  data_type <- class(v)
+  
+  if(unique(v) %>% length() <= 3 & data_type != "Date")
+  {
+    data_type <- "character"
+  }
+  
+  
+  if(unique(v) %>% length() > 3)
+  {
+    data_type <- class(v)
+  }
+  
+  if(data_type == "Date")
+  {
+     out <- fakeDate(
+  v = v,
+  n = n)
+  }
+  
+  if(data_type == "factor")
+  {
+    out <-  fakeCat(
+  v = v,
+  n = n)
+  }
+    
+    if(data_type == "character")
+  {
+    out <-  fakeCat(
+  v = v,
+  n = n)
+    }
+    
+     if(data_type == "numeric")
+  {
+     out <- fakeCont(
+  v = v,
+  n = n)
+     }
+  
+    if(data_type == "integer")
+  {
+     out <- fakeCat(
+  v = v,
+  n = n)
+     }
+  
+  return(out)
+}
+```
+
+```{r}
+helper_unique(cohort,MF,n = params$number_ids) %>% table()
+```
+
+```{r}
+fakeCat(cohort$race,n = 10)
+```
+
+### What needs to be unique? 
+
+The following variables define a row in the final data set:
+
+1.  Person identifier
+2.  Baseline quarter
+3   Relative quarter
+
+Start by creating a dataframe of unique ids.
+
+```{r}
+prep_01 <- 
+  tibble(PersonID = c(1:params$number_ids)) %>% 
+  mutate(
+    PersonID = str_pad(PersonID,width = 8, pad = "0", side = "left")
+  )
+
+prep_01 %>% skim()
+```
+
+Now we create baseline quarters off of the original data, but completely fabricated. Each PersonID has the a baseline_quarter and the distribution matches that of the larger data.
+
+```{r}
+prep_01 <- 
+  prep_01 %>% 
+  mutate(
+   baseline_quarter = helper_unique(cohort,
+                                    baseline_quarter,
+                                    n = params$number_ids)
+  )
+
+prep_01 %>% skim()
+```
+
+### Adding other time-invarient factors {.tabset .tabset-pills}
+
+Several factors in the data should not change from quarter to quarter. They include:
+
+-   DateOfBirth
+-   Gender
+-   raceallcodes
+-   HispanicLatinoInd
+-   DeathDate
+-   LanugageCode
+-   WrittenLanguageCode
+-   immigrant
+-   age_q_start
+-   age_q_end
+-   race
+
+#### Adding dates of birth and death
+
+```{r}
+prep_02 <- 
+  prep_01 %>% 
+  mutate(
+    DateOfBirth = 
+      helper_unique(cohort,
+                    DateOfBirth,
+                    n = params$number_ids),
+    DeathDate = 
+      helper_unique(cohort,
+                    DeathDate,
+                    n = params$number_ids)
+  )
+
+prep_02 %>% skim()
+```
+
+#### Adding other features
+
+-   Gender
+-   raceallcodes
+-   HispanicLatinoInd
+-   LanugageCode
+-   WrittenLanguageCode
+-   immigrant
+-   age_q_start
+-   age_q_end
+-   race
+
+```{r}
+prep_02 <-
+  prep_02 %>% 
+  mutate(
+    Gender = 
+      helper_unique(cohort,
+                    Gender,
+                    n = params$number_ids),
+    raceallcodes = 
+      helper_unique(cohort,
+                    raceallcodes,
+                    n = params$number_ids),
+    HispanicLatinoInd = 
+      helper_unique(cohort,
+                    HispanicLatinoInd,
+                    n = params$number_ids),
+    LanguageCode = 
+      helper_unique(cohort,
+                    LanguageCode,
+                    n = params$number_ids),
+    WrittenLanguageCode = 
+      helper_unique(cohort,
+                    WrittenLanguageCode,
+                    n = params$number_ids),
+    immigrant =
+      helper_unique(cohort,
+                    immigrant,
+                    n = params$number_ids),
+    age_q_start =
+      helper_unique(cohort,
+                    age_q_start,
+                    n = params$number_ids),
+    age_q_end =
+      helper_unique(cohort,
+                    age_q_end,
+                    n = params$number_ids),
+    race =
+      helper_unique(cohort,
+                    race,
+                    n = params$number_ids)
+  )
+  
+
+prep_02 %>% skim()
+```
+
+### Creating panel structure
+
+Now we duplicated these for each of the relative quarters.
+
+```{r}
+prep_03 <- 
+  cohort %>% 
+  select(relative_quarter) %>%
+  distinct() %>% 
+  arrange(relative_quarter) %>% 
+  pull() %>% 
+map_dfr(~
+  mutate(prep_02,
+    relative_quarter = .
+  ))
+
+prep_03 %>% skim()
+```
+
+### Adding time-varying features {.tabset .tabset-pills}
+
+Find the names of columns in `cohort` but not in `prep_03` e.g. variables of which we might need to make fake versions.
+
+```{r}
+names_cohort_not_prep_03 <- 
+  names(cohort)[!(names(cohort) %in% names(prep_03))]
+
+names_cohort_not_prep_03
+```
+
+Create a list of columns from this list of which we don't need to make fake versions.
+
+```{r}
+columns_to_remove <- 
+  c(
+    "SocialSecurityNbr",
+    "SSN",
+    "personid_ui",
+    "CalendarYear",
+    "Quarter",
+    "EmployerAccountNumber",
+    "EmployerUnitNumber",
+    "OfficerFlag",
+    "UsedInClaimFlag",
+    "WeeksWorked",
+    "Parent_Cd",
+    "Description",
+    "qtr_end",
+    "qtr_start",
+    "CaseNumber",
+    "quarter_end"     
+)
+```
+
+Remove the above to create a list of variables that will be fabricated.
+
+```{r}
+column_to_make_fake <- 
+  names_cohort_not_prep_03[! names_cohort_not_prep_03 %in% columns_to_remove]
+
+column_to_make_fake
+```
+
+Create dataframe of fabricated data based on the columns above and apply the names of those columns to the new dataframe. 
+
+```{r}
+prep_04 <- 
+  column_to_make_fake %>% 
+  map_dfc(~helper_unique(cohort,
+                    all_of(.),
+                    n = nrow(prep_03)
+                    )
+  ) %>% 
+  rename_with(~column_to_make_fake)
+
+prep_04 %>% 
+  skim()
+```
+
+Bind `prep_03` and `prep_04`.
+
+```{r}
+prep_xx <- 
+  prep_03 %>% 
+  bind_cols(prep_04)
+
+prep_xx %>% 
+  skim()
+```
+
+## Comparing original and fabricated data {.tabset .tabset-pills}
+
+```{r}
+comparedf(cohort %>% sample_n(size = 100000),prep_xx) %>% summary()
+```
+
+## Save data {.tabset .tabset-pills}
+
+Rename fabricated data.
+
+```{r}
+mv(from = "prep_xx", to = "cohort_fabricated")
+```
+
+File name.
+
+```{r}
+file <- glue::glue("mfip-worker-fabricated-{Sys.Date()}.rdata")
+
+file
+```
+
+Save data.
+
+```{r}
+save(cohort_fabricated,
+     file = here::here(
+       "output",
+       "rdata",
+       file
+     )
+     )
+```
+
+Remove all data elements.
+
+```{r remove data, results='hide'}
+rm(list=ls())
+gc()
+
+```
+
+## Extraction time {.tabset .tabset-pills}
+
+```{r}
+tictoc::toc()
+```
+

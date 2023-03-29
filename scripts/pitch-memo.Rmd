@@ -1,0 +1,428 @@
+---
+title: "Pitch Memo"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: united
+    highlight: tango
+    code_folding: hide
+params:
+  author: "Ben Jaques-Leslie"
+  project_name: "Using fabricated data in analysis"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(DataExplorer)
+library(readr)
+library(nycflights13)
+library(arsenal)
+```
+
+# Pitch memo {.tabset .tabset-pills}
+
+**Project name**: `r params$project_name`
+
+**Author**: `r params$author`
+
+## Introduction {.tabset .tabset-pills}
+
+## Case for fabricated data
+
+Synthetic data is frequently used in many areas. Generally, researchers use synthetic data to perform analysis on data that contains personally identifiable information or cannot be shared. Synthetic data is created carefully to maintain the relationships between the variables. Analysis on synthetic data should produce the same results as if it were done on the true data. 
+
+Fabricated data has a different use case than synthetic data. Fabricated is meant to strength our research by *removing* any correlation between variables. Even with a clearly defined analysis plan, a researcher will be tempted to dig into interesting relationships that they find, straying from their plan, and introducing research bias. Using fabricated data, a researcher knows that they are unlikely any relationships are fabricated
+
+
+```{r}
+flights %>% 
+  skim()
+```
+
+## Approach 1: Suffling the data by column
+
+```{r}
+flights %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+```{r}
+approach_01 <- 
+  flights %>% 
+  mutate(
+    across(
+      .cols = everything(),
+      .fns = ~sample(.)
+    )
+  )
+```
+
+
+```{r}
+approach_01%>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+```{r}
+comparedf(flights, approach_01) %>% 
+  summary()
+```
+
+```{r}
+flights %>% 
+  mutate(data = "original") %>% 
+  bind_rows(approach_01 %>% 
+              mutate(data = "fabricated")) %>% 
+  group_by(data) %>% 
+  skim()
+```
+
+
+## Approach 2: Randomly drawing variables to mimic underlying distribution
+
+### Fabricating functions
+
+Written by Joe Ritter.
+
+This function takes a categorical vector and generates a random distribution with the same probabilities.
+
+```{r}
+fakeCat <- function(v, n) {
+    # v is integer, string, or factor.
+    # n is the desired length of the fake vector.
+    w <- as.character(v)
+    dist <- prop.table(table(w, useNA = 'always'))
+    vals <- names(dist)
+    fake.v <- sample(vals, n, prob=dist, replace=TRUE)
+    if (is.factor(v)) fake.v <- factor(fake.v)
+    if (is.integer(v)) fake.v <- as.integer(fake.v)
+    return(fake.v)
+}
+```
+
+This function creates a vector of fake dates.
+
+```{r}
+fakeDate <- function(v, n)
+{
+  lubridate::ymd(fakeCat(v,n))
+}
+```
+
+This function creates a vector of fake dates.
+
+```{r}
+fakePOXIXct <- function(v, n)
+{
+  lubridate::POSIXct(fakeCat(v,n))
+}
+```
+
+
+This function takes a continuous vector and generates a distribution with the same distribution.
+
+```{r}
+fakeCont <- function(v, n) {
+  # Remove nulls from v
+     v <- na.omit(v)
+ 
+    # v is a variable for which a kernel density estimate makes sense.
+    # n is the desired length of the fake vector.
+    dist <- density(v)
+    # The simulation follows one of the examples for density().
+    # The default kernel is gaussian, which is why rnorm is used.  
+    # Bandwidth is the SD of the # kernel.
+    fake.v <- rnorm(n, mean=sample(v, n, replace=TRUE), sd=dist$bw)
+    return(fake.v)                    
+}
+```
+
+```{r}
+fakeCat(as.character(flights$time_hour)) %>% as.POSIXct() %>% head()
+```
+
+```{r}
+as.POSIXct("2013-06-25 06:00:00")
+```
+
+
+
+This function builds off the others.
+
+```{r}
+helper_unique <- function(in_original_data,in_variable, n)
+{
+  v <- 
+    in_original_data %>% 
+    select({{in_variable}}) %>% 
+    pull({{in_variable}})
+  
+  data_type <- class(v)[1]
+  
+  # print(data_type)
+  
+  if(unique(v) %>% length() <= 3 & data_type != "Date")
+  {
+    data_type <- "character"
+  }
+  
+  
+  if(unique(v) %>% length() > 3)
+  {
+    data_type <- class(v)[1]
+  }
+  
+  if(data_type == "Date")
+  {
+     out <- fakeDate(
+  v = v,
+  n = n)
+  }
+  
+  if(data_type == "factor")
+  {
+    out <-  fakeCat(
+  v = v,
+  n = n)
+  }
+    
+    if(data_type == "character")
+  {
+    out <-  fakeCat(
+  v = v,
+  n = n)
+    }
+    
+     if(data_type == "numeric")
+  {
+     out <- fakeCont(
+  v = v,
+  n = n)
+     }
+  
+    if(data_type == "integer")
+  {
+     out <- fakeCat(
+  v = v,
+  n = n)
+    }
+  
+  if(data_type == "POSIXct")
+  {
+     out <-
+     as.POSIXct(
+       fakeCat(
+         v = as.character(v),
+         n = n)
+       )
+  }
+  
+  
+  return(out)
+}
+```
+
+Create list of columns to make fake. 
+
+```{r}
+column_to_make_fake <- 
+  names(flights)
+
+column_to_make_fake
+```
+
+Create dataframe of fabricated data based on the columns above and apply the names of those columns to the new dataframe. 
+
+```{r}
+approach_02 <- 
+  column_to_make_fake %>% 
+  map_dfc(~helper_unique(flights,
+                    all_of(.),
+                    n = nrow(flights)
+                    )
+  ) %>% 
+  rename_with(~column_to_make_fake)
+
+approach_02 %>% 
+  skim()
+```
+
+
+
+```{r}
+approach_02 %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+```{r}
+comparedf(flights, approach_02) %>% 
+  summary()
+```
+
+```{r}
+flights %>% 
+  mutate(data = "original") %>% 
+  bind_rows(approach_02 %>% 
+              mutate(data = "fabricated")) %>% 
+  group_by(data) %>% 
+  skim()
+```
+
+## Approach 2: Drawing numerics from normal distributions and suffling the categorical data by column
+
+```{r}
+flights %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+
+
+```{r}
+flights %>% 
+  mutate(
+    across(
+      .cols = where(is.numeric),
+      .fns = ~rnorm(n = nrow(flights), mean = mean(., na.rm = TRUE),
+                    sd = mean(., na.rm = TRUE))
+    )
+  ) %>% 
+   mutate(
+    across(
+      .cols = where(~!is.numeric(.)),
+          .fns = ~sample(.)
+    )
+  ) %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+## Approach 3: Drawing numerics from normal distributions and randomly select categorical data by column
+
+```{r}
+flights %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+```{r}
+sample(unique(flights$carrier),size = 2)
+```
+
+
+```{r}
+flights %>% 
+  mutate(
+    across(
+      .cols = where(is.numeric),
+      .fns = ~rnorm(n = nrow(flights), mean = mean(., na.rm = TRUE),
+                    sd = mean(., na.rm = TRUE))
+    )
+  ) %>% 
+   mutate(
+    across(
+      .cols = where(~!is.numeric(.)),
+          .fns = ~sample(unique(.),size = nrow(flights), replace = TRUE)
+    )
+  ) %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```
+
+## Load data {.tabset .tabset-pills}
+
+### Data from `r params$data_folder_1`
+
+Find the list of .csv files in the `r params$data_folder_1` data folder.
+
+```{r}
+files <- 
+  list.files(here::here("03. Data Collection",params$data_folder_1), pattern = ".csv", full.names = TRUE)
+files
+```
+
+Load all data files in the `r params$data_folder_1` data folder.
+
+```{r}
+prep_01 <- files %>% 
+  map_dfr(~read_csv(., 
+    col_types = cols(Date = col_date(format = "%m_%d_%Y")))) %>% 
+  clean_names()
+```
+
+Review data.
+
+```{r}
+prep_01 %>% skim()
+```
+
+Create function to drop rows with null unique identifiers.
+
+```{r}
+filter_unique <- function(in_data, ...)
+{
+  in_data %>% 
+  filter(if_all(c(...),~!is.na(.)))
+}
+```
+
+Drop rows with null unique identifiers.
+
+```{r}
+prep_01 <- 
+  prep_01 %>% 
+  filter_unique(params$unique_identifier_1)
+```
+
+Review data.
+
+```{r}
+prep_01 %>% skim()
+```
+
+Identify columns with amounts unique values less than 30.
+
+```{r}
+low_unique_value_cols <- 
+  prep_01 %>% 
+  summarise(across(.fns = ~n_distinct(.))) %>% 
+  rownames_to_column() %>% 
+  pivot_longer(-rowname) %>% 
+  filter(value < 30) %>% 
+  pull(name)
+```
+
+**Unique low value columns**: `r low_unique_value_cols`
+
+Convert low unique value variables to factors.
+
+```{r}
+prep_01 <- 
+  prep_01 %>% 
+  mutate(across(all_of(low_unique_value_cols),as.factor))
+```
+
+Review data.
+
+```{r}
+prep_01 %>% skim()
+```
+
+## Join/bind data {.tabset .tabset-pills}
+
+No data to join or bind so far.
+
+```{r}
+d <- prep_01
+```
+
+Review data.
+
+```{r}
+d %>% skim()
+```
+
+## Save data {.tabset .tabset-pills}
+
+```{r}
+save(d, file = here::here("03. Data Collection",params$data_folder_1,"prepared_data.rdata"))
+```
