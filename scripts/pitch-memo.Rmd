@@ -20,6 +20,7 @@ library(DataExplorer)
 library(readr)
 library(nycflights13)
 library(arsenal)
+library(patchwork)
 ```
 
 # Pitch memo {.tabset .tabset-pills}
@@ -30,24 +31,87 @@ library(arsenal)
 
 ## Introduction {.tabset .tabset-pills}
 
-## Case for fabricated data
+This memo makes the case for using fabricated data in writing analysis and describes two approaches for creating fabricated data sets.
 
-Synthetic data is frequently used in many areas. Generally, researchers use synthetic data to perform analysis on data that contains personally identifiable information or cannot be shared. Synthetic data is created carefully to maintain the relationships between the variables. Analysis on synthetic data should produce the same results as if it were done on the true data. 
+### Case for fabricated data
 
-Fabricated data has a different use case than synthetic data. Fabricated is meant to strength our research by *removing* any correlation between variables. Even with a clearly defined analysis plan, a researcher will be tempted to dig into interesting relationships that they find, straying from their plan, and introducing research bias. Using fabricated data, a researcher knows that they are unlikely any relationships are fabricated
+Synthetic data is frequently used in many areas. Generally, researchers use synthetic data to perform analysis on data that contains personally identifiable information or cannot be shared. Synthetic data is created carefully to maintain the relationships between the variables. Analysis on synthetic data should produce the same results as if it were done on the true data.
 
+Fabricated data has a different use case than synthetic data. Fabrication is meant to strength our research by *removing* any correlation between variables, while maintain the distributions of the data elements. Even with a clearly defined analysis plan, a researcher will be tempted to dig into interesting relationships that they find during analysis, straying from their plan, and introducing research bias. Using fabricated data, a researcher knows that they are unlikely any relationships. If they do find something interesting, they know it is spurious.
+
+Fabricated data is of greatest benefit at the analysis stage. During the analysis, researchers are evaluating the relationships between the data elements, exploring correlations, and identifying causation. Using fabricated data to write the scripts allows the researcher to do the work without bias created from seeing something interesting.
+
+Data could be fabricated before data preparation, but it is a longer process and potentially more risky. Creating fabricated **before data preparation**, leads to the following process:
+
+1.  Import original data set or sets
+
+2.  Fabricated data set or sets[^1]
+
+3.  Write data preparation script against fabricated data set
+
+4.  Perform data preparation on fabricated data set to create fabricated analysis data
+
+5.  Write analysis script based on analysis plan against the fabricated analysis data
+
+6.  Perform data analysis on fabricated analysis data
+
+7.  Perform data preparation on original data set to create analysis data
+
+8.  Perform data analysis on analysis data
+
+[^1]: Approach 1 is the better option here, because outliers and other data issues are more likely to be preserved. The data preparation will then need to be written to account for these issues.
+
+The process for using fabricated data **after data preparation** is simpler:
+
+1.  Import original data set or sets
+
+2.  Write data preparation script against original data set to create analysis data
+
+3.  Fabricate analysis data to create fabricated analysis data
+
+4.  Write analysis script based on analysis plan against the fabricated analysis data
+
+5.  Perform data analysis on fabricated analysis data
+
+6.  Perform data analysis on analysis data
+
+While using fabricated data at the data preparation stage would limit researcher degrees of freedom more, it is likely that data preparation will need to be adjusted when using the original data. One way this might happen is through deduplication. Fabricated data removes correlations so the relationships that produce duplicated cases may be eliminated.[^2] Furthermore, adjustments in data preparation are likely to lead to changes in analysis. Using fabricated data at any stage is likely to require *some* changes when applying the true data, but this would be more limited if the data is fabricated at the analysis stage.
+
+[^2]: For example, data reflecting cases at two points in time. The research is likely to want to select the data from the earlier or later point.
+
+<!--# Why do re-analysis??? -->
+
+## Creating fabricated data {.tabset .tabset-pills}
+
+Below are two approaches to creating fabricated data. In the first approach, each column is independently shuffled. In the second, data is created by randomly drawing from the distributions of the true data.
+
+In these examples, the `flights` data set will be used. The goal of fabrication is be remove correlations between data elements, while maintaining the distributions of the elements. For each approach, the fabricated data will be compared to the true data by summaries of the data (using `skimr::skim()`) and reviewing the correlations between the elements (using `DataExplorer::plot_correlation()`).
+
+Below is a summary of the `flights` data set.
 
 ```{r}
 flights %>% 
   skim()
 ```
 
-## Approach 1: Suffling the data by column
+Next are the correlations between the elements.
+
+```{r include=FALSE}
+og_corr_plot <- 
+  flights %>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs")) +
+  ggtitle("Original")
+```
 
 ```{r}
-flights %>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+og_corr_plot
 ```
+
+## Approach 1: Shuffling the data by column
+
+The first approach to creating fabricated data randomly shuffles each column is independently. This method has several benefits. First, it is very simple to perform. Each column is randomly sampled. Second, since the data is only shuffled, all outliers and data errors remain. This may be useful because these issues may have to be addressed in the analysis.
+
+Below fabricated data is created using this approach.
 
 ```{r}
 approach_01 <- 
@@ -60,16 +124,7 @@ approach_01 <-
   )
 ```
 
-
-```{r}
-approach_01%>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
-```
-
-```{r}
-comparedf(flights, approach_01) %>% 
-  summary()
-```
+Below are summaries, comparing the fabricated data to the original data.
 
 ```{r}
 flights %>% 
@@ -80,80 +135,80 @@ flights %>%
   skim()
 ```
 
+All of the summary statistics for each element and exactly the same between the fabricated data set and the original data set.
+
+Next are the pairwise corrections in the fabricated data set compared to the original.
+
+```{r,include=FALSE}
+a1_corr_plot <- 
+  approach_01%>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs")) +
+  ggtitle("Approach 1")
+```
+
+```{r}
+a1_corr_plot | og_corr_plot
+```
+
+Correlations between the data elements has changed greatly between original data the fabricated data using approach 1. Almost all pairwise correlations have been eliminated.
 
 ## Approach 2: Randomly drawing variables to mimic underlying distribution
 
+The second approach creates a new data set where each column follows the same distribution as the data in the original data set. There are some benefits to this approach. First, this creates a data set with none of the true data. If data sharing is a constraint, this approach is more likely to be possible because the true data only acts to provide the structure, but none of it is used directly. Second, the data can be make with a larger number of observations. If a researcher is early in a study and wants to start developing analysis using the incomplete data, this approach may be used to create additional observations. This approach is more completed. Fabrication is data type dependent.
+
+Below are functions used to fabricated different types of data.
+
 ### Fabricating functions
 
-Written by Joe Ritter.
+The functions below were written with assistance from Joe Ritter at the University of Minnesota.
 
 This function takes a categorical vector and generates a random distribution with the same probabilities.
 
 ```{r}
-fakeCat <- function(v, n) {
+fabricateCat <- function(v, n) {
     # v is integer, string, or factor.
-    # n is the desired length of the fake vector.
+    # n is the desired length of the fabricate vector.
     w <- as.character(v)
     dist <- prop.table(table(w, useNA = 'always'))
     vals <- names(dist)
-    fake.v <- sample(vals, n, prob=dist, replace=TRUE)
-    if (is.factor(v)) fake.v <- factor(fake.v)
-    if (is.integer(v)) fake.v <- as.integer(fake.v)
-    return(fake.v)
+    fabricate.v <- sample(vals, n, prob=dist, replace=TRUE)
+    if (is.factor(v)) fabricate.v <- factor(fabricate.v)
+    if (is.integer(v)) fabricate.v <- as.integer(fabricate.v)
+    return(fabricate.v)
 }
 ```
 
-This function creates a vector of fake dates.
+This function takes a date vector, applies `fabricateCat()`, then converts the result back to a date type.
 
 ```{r}
-fakeDate <- function(v, n)
+fabricateDate <- function(v, n)
 {
-  lubridate::ymd(fakeCat(v,n))
+  lubridate::ymd(fabricateCat(v,n))
 }
 ```
-
-This function creates a vector of fake dates.
-
-```{r}
-fakePOXIXct <- function(v, n)
-{
-  lubridate::POSIXct(fakeCat(v,n))
-}
-```
-
 
 This function takes a continuous vector and generates a distribution with the same distribution.
 
 ```{r}
-fakeCont <- function(v, n) {
+fabricateCont <- function(v, n) {
   # Remove nulls from v
      v <- na.omit(v)
  
     # v is a variable for which a kernel density estimate makes sense.
-    # n is the desired length of the fake vector.
+    # n is the desired length of the fabricate vector.
     dist <- density(v)
     # The simulation follows one of the examples for density().
     # The default kernel is gaussian, which is why rnorm is used.  
     # Bandwidth is the SD of the # kernel.
-    fake.v <- rnorm(n, mean=sample(v, n, replace=TRUE), sd=dist$bw)
-    return(fake.v)                    
+    fabricate.v <- rnorm(n, mean=sample(v, n, replace=TRUE), sd=dist$bw)
+    return(fabricate.v)                    
 }
 ```
 
-```{r}
-fakeCat(as.character(flights$time_hour)) %>% as.POSIXct() %>% head()
-```
+This function applies the above based on the data type.
 
 ```{r}
-as.POSIXct("2013-06-25 06:00:00")
-```
-
-
-
-This function builds off the others.
-
-```{r}
-helper_unique <- function(in_original_data,in_variable, n)
+fabricater <- function(in_original_data,in_variable, n)
 {
   v <- 
     in_original_data %>% 
@@ -177,35 +232,35 @@ helper_unique <- function(in_original_data,in_variable, n)
   
   if(data_type == "Date")
   {
-     out <- fakeDate(
+     out <- fabricateDate(
   v = v,
   n = n)
   }
   
   if(data_type == "factor")
   {
-    out <-  fakeCat(
+    out <-  fabricateCat(
   v = v,
   n = n)
   }
     
     if(data_type == "character")
   {
-    out <-  fakeCat(
+    out <-  fabricateCat(
   v = v,
   n = n)
     }
     
      if(data_type == "numeric")
   {
-     out <- fakeCont(
+     out <- fabricateCont(
   v = v,
   n = n)
      }
   
     if(data_type == "integer")
   {
-     out <- fakeCat(
+     out <- fabricateCat(
   v = v,
   n = n)
     }
@@ -214,7 +269,7 @@ helper_unique <- function(in_original_data,in_variable, n)
   {
      out <-
      as.POSIXct(
-       fakeCat(
+       fabricateCat(
          v = as.character(v),
          n = n)
        )
@@ -225,42 +280,32 @@ helper_unique <- function(in_original_data,in_variable, n)
 }
 ```
 
-Create list of columns to make fake. 
+### Fabricating using approach 2
+
+First, create list of columns to fabricate.
 
 ```{r}
-column_to_make_fake <- 
+column_to_fabricate <- 
   names(flights)
 
-column_to_make_fake
+column_to_fabricate
 ```
 
-Create dataframe of fabricated data based on the columns above and apply the names of those columns to the new dataframe. 
+Create dataframe of fabricated data based on the columns above and apply the names of those columns to the new dataframe. Note that the same number of rows as the original data set are being used in this example. The parameter `n` in the `fabricater()` function can be set to whatever size desired.
 
-```{r}
+```{r include=FALSE}
 approach_02 <- 
-  column_to_make_fake %>% 
-  map_dfc(~helper_unique(flights,
+  column_to_fabricate %>% 
+  map_dfc(~fabricater(flights,
                     all_of(.),
                     n = nrow(flights)
                     )
   ) %>% 
-  rename_with(~column_to_make_fake)
+  rename_with(~column_to_fabricate)
 
-approach_02 %>% 
-  skim()
 ```
 
-
-
-```{r}
-approach_02 %>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
-```
-
-```{r}
-comparedf(flights, approach_02) %>% 
-  summary()
-```
+Below are summaries, comparing the fabricated data to the original data.
 
 ```{r}
 flights %>% 
@@ -271,158 +316,45 @@ flights %>%
   skim()
 ```
 
-## Approach 2: Drawing numerics from normal distributions and suffling the categorical data by column
+With this approach, differences do exist between the data elements in the fabricated and original data sets, but they are very minimal.
 
-```{r}
-flights %>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
-```
+Next are the pairwise corrections in the fabricated data set compared to the original.
 
-
-
-```{r}
-flights %>% 
-  mutate(
-    across(
-      .cols = where(is.numeric),
-      .fns = ~rnorm(n = nrow(flights), mean = mean(., na.rm = TRUE),
-                    sd = mean(., na.rm = TRUE))
-    )
-  ) %>% 
-   mutate(
-    across(
-      .cols = where(~!is.numeric(.)),
-          .fns = ~sample(.)
-    )
-  ) %>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
-```
-
-## Approach 3: Drawing numerics from normal distributions and randomly select categorical data by column
-
-```{r}
-flights %>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+```{r,include=FALSE}
+a2_corr_plot <- 
+  approach_02%>% 
+  plot_correlation(cor_args = list("use" = "pairwise.complete.obs")) +
+  ggtitle("Approach 2")
 ```
 
 ```{r}
-sample(unique(flights$carrier),size = 2)
+a2_corr_plot | og_corr_plot
 ```
 
+Again the correlations between the data elements has changed greatly. Almost all pairwise correlations have been eliminated.
+
+## Appendix {.tabset .tabset-pills}
+
+### Comparing data sets {.tabset .tabset-pills}
+
+#### Approach 1 to original
 
 ```{r}
-flights %>% 
-  mutate(
-    across(
-      .cols = where(is.numeric),
-      .fns = ~rnorm(n = nrow(flights), mean = mean(., na.rm = TRUE),
-                    sd = mean(., na.rm = TRUE))
-    )
-  ) %>% 
-   mutate(
-    across(
-      .cols = where(~!is.numeric(.)),
-          .fns = ~sample(unique(.),size = nrow(flights), replace = TRUE)
-    )
-  ) %>% 
-  plot_correlation(cor_args = list("use" = "pairwise.complete.obs"))
+comp_1 <- comparedf(flights, approach_01)
 ```
 
-## Load data {.tabset .tabset-pills}
-
-### Data from `r params$data_folder_1`
-
-Find the list of .csv files in the `r params$data_folder_1` data folder.
-
 ```{r}
-files <- 
-  list.files(here::here("03. Data Collection",params$data_folder_1), pattern = ".csv", full.names = TRUE)
-files
+comp_1 %>%
+  summary()
 ```
 
-Load all data files in the `r params$data_folder_1` data folder.
+#### Approach 2 to original
 
 ```{r}
-prep_01 <- files %>% 
-  map_dfr(~read_csv(., 
-    col_types = cols(Date = col_date(format = "%m_%d_%Y")))) %>% 
-  clean_names()
+comp_2 <- comparedf(flights, approach_02)
 ```
 
-Review data.
-
 ```{r}
-prep_01 %>% skim()
-```
-
-Create function to drop rows with null unique identifiers.
-
-```{r}
-filter_unique <- function(in_data, ...)
-{
-  in_data %>% 
-  filter(if_all(c(...),~!is.na(.)))
-}
-```
-
-Drop rows with null unique identifiers.
-
-```{r}
-prep_01 <- 
-  prep_01 %>% 
-  filter_unique(params$unique_identifier_1)
-```
-
-Review data.
-
-```{r}
-prep_01 %>% skim()
-```
-
-Identify columns with amounts unique values less than 30.
-
-```{r}
-low_unique_value_cols <- 
-  prep_01 %>% 
-  summarise(across(.fns = ~n_distinct(.))) %>% 
-  rownames_to_column() %>% 
-  pivot_longer(-rowname) %>% 
-  filter(value < 30) %>% 
-  pull(name)
-```
-
-**Unique low value columns**: `r low_unique_value_cols`
-
-Convert low unique value variables to factors.
-
-```{r}
-prep_01 <- 
-  prep_01 %>% 
-  mutate(across(all_of(low_unique_value_cols),as.factor))
-```
-
-Review data.
-
-```{r}
-prep_01 %>% skim()
-```
-
-## Join/bind data {.tabset .tabset-pills}
-
-No data to join or bind so far.
-
-```{r}
-d <- prep_01
-```
-
-Review data.
-
-```{r}
-d %>% skim()
-```
-
-## Save data {.tabset .tabset-pills}
-
-```{r}
-save(d, file = here::here("03. Data Collection",params$data_folder_1,"prepared_data.rdata"))
+comp_2 %>%
+  summary()
 ```
