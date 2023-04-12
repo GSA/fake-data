@@ -39,6 +39,8 @@ Synthetic data is frequently used in many areas. Generally, researchers use synt
 
 Fabricated data has a different use case than synthetic data. Fabrication is meant to strength our research by *removing* any correlation between variables, while maintain the distributions of the data elements. Even with a clearly defined analysis plan, a researcher will be tempted to dig into interesting relationships that they find during analysis, straying from their plan, and introducing research bias. Using fabricated data, a researcher knows that they are unlikely any relationships. If they do find something interesting, they know it is spurious.
 
+### When to fabricate
+
 Fabricated data is of greatest benefit at the analysis stage. During the analysis, researchers are evaluating the relationships between the data elements, exploring correlations, and identifying causation. Using fabricated data to write the scripts allows the researcher to do the work without bias created from seeing something interesting.
 
 Data could be fabricated before data preparation, but it is a longer process and potentially more risky. Creating fabricated **before data preparation**, leads to the following process:
@@ -75,9 +77,23 @@ The process for using fabricated data **after data preparation** is simpler:
 
 6.  Perform data analysis on analysis data
 
-While using fabricated data at the data preparation stage would limit researcher degrees of freedom more, it is likely that data preparation will need to be adjusted when using the original data. One way this might happen is through deduplication. Fabricated data removes correlations so the relationships that produce duplicated cases may be eliminated.[^2] Furthermore, adjustments in data preparation are likely to lead to changes in analysis. Using fabricated data at any stage is likely to require *some* changes when applying the true data, but this would be more limited if the data is fabricated at the analysis stage.
+While using fabricated data at the data preparation stage would limit researcher degrees of freedom more, it is likely that data preparation will need to be adjusted when using the original data. One way this might happen is through removal of duplicates. Fabricated data removes correlations so the relationships that produce duplicated cases may be eliminated.[^2] Furthermore, adjustments in data preparation are likely to lead to changes in analysis. Using fabricated data at any stage is likely to require *some* changes when applying the true data, but this would be more limited if the data is fabricated at the analysis stage.
 
 [^2]: For example, data reflecting cases at two points in time. The research is likely to want to select the data from the earlier or later point.
+
+### Fabrication and reanalysis
+
+Reanalysis is conducted for several reasons:
+
+1.  To check the check the original analysis code
+
+2.  To review exploratory analysis
+
+3.  To explore departures from the analysis plan.
+
+Employing fabricated data mitigates the need for reanalysis in several ways. Writing analysis scripts against fabricated data implies a step of using that script against the true data. The process of using fabricated data includes a check of the code against another data set: the true data. Fabricated data pushes against exploratory analysis or departures from analysis plans because researchers are aware that any relationships they may see are not real and just randomly generate. Researchers should adhere more to analysis plans when writing scripts on fabricated data.
+
+Using fabricated data reduces the necessity of reanalysis. The principle benefit of reanalysis when using fabricated data is that another researcher may have a different approach or conduct alternative tests on the data. Depending on the project one might believe that fabricated data replaces the need for any reanalysis.
 
 <!--# Why do re-analysis??? -->
 
